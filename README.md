@@ -18,7 +18,7 @@ SPECTRE is an advanced procedural world generation system that combines:
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.8+
+- **Python 3.8-3.12** (Python 3.13 requires compatibility patch)
 - Node.js 14+
 - Modern web browser
 
@@ -30,8 +30,8 @@ pip install -r requirements.txt
 # Install Node dependencies
 npm install
 
-# Start the server
-python server/main.py
+# Start the server (recommended method)
+python run_server.py
 
 # Open web interface
 npm start
@@ -560,6 +560,38 @@ curl http://localhost:8000/api/worlds/{world_id}/pois
 - Verify Three.js initialization
 - Test with browser console logs
 - Check terrain data format
+
+#### 6. Python 3.13 Compatibility Issues
+**Symptoms**: `AttributeError: 'str' object has no attribute 'co_consts'` in linecache.py
+**Solutions**:
+- Use Python 3.12.x for best compatibility
+- If using Python 3.13+, use `python run_server.py` (includes compatibility patch)
+- Disable uvicorn reloader: `reload=False`
+- Verify linecache monkey patch is applied
+
+## 🐍 Python Version Compatibility
+
+### Recommended Python Versions
+- **Best**: Python 3.12.x (fully compatible)
+- **Good**: Python 3.8-3.11 (fully compatible)
+- **Supported**: Python 3.13+ (requires compatibility patch)
+
+### Python 3.13+ Compatibility
+The system includes automatic compatibility patching for Python 3.13 issues:
+
+1. **Automatic Detection**: `run_server.py` detects Python 3.13+ and applies fixes
+2. **Uvicorn Reloader**: Disabled in both `server/main.py` and `run_server.py`
+3. **Linecache Patch**: Monkey patch handles `co_consts` AttributeError
+4. **Core Functionality**: All features work identically across versions
+
+### Running with Python 3.13
+```bash
+# Start server with Python 3.13 compatibility
+python run_server.py
+
+# Verify compatibility patch
+# Should see: "✅ Applied Python 3.13 compatibility patch for linecache.py"
+```
 
 ## 📊 Performance Optimization Tips
 

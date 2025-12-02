@@ -15,11 +15,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from .world_engine import WorldEngine
-from .events import EventBroadcaster
-from .mcp_handler import MCPHandler
-from .database import DatabaseManager
-from .api import add_router
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from world_engine import WorldEngine
+from events import EventBroadcaster
+from mcp_handler import MCPHandler
+from database import DatabaseManager
+from api import add_router
 
 # Global state
 app = FastAPI(title="SPECTRE World Generation Server",
@@ -194,6 +198,6 @@ if __name__ == "__main__":
         "server.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
+        reload=False,  # Disable reloader to avoid Python 3.13 compatibility issues
         log_level="info"
     )

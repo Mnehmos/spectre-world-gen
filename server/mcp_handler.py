@@ -8,9 +8,13 @@ import json
 import sys
 import traceback
 from typing import Dict, Any, Optional, List
-from .world_engine import WorldEngine
-from .events import EventBroadcaster
-from .database import DatabaseManager
+import sys
+import os
+sys.path.append(os.path.dirname(__file__))
+
+from world_engine import WorldEngine
+from events import EventBroadcaster
+from database import DatabaseManager
 
 class MCPHandler:
     """

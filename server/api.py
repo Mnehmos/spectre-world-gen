@@ -7,8 +7,12 @@ Provides HTTP endpoints for web UI interaction.
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
-from .world_engine import WorldEngine
-from .database import DatabaseManager
+import sys
+import os
+sys.path.append(os.path.dirname(__file__))
+
+from world_engine import WorldEngine
+from database import DatabaseManager
 
 # Create router
 router = APIRouter(prefix="/api", tags=["api"])
