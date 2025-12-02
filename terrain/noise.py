@@ -1,114 +1,235 @@
 """
-Perlin Noise Generator
+SPECTRE Terrain Generation - Perlin Noise Module
 
-Pure Python implementation of Perlin noise for terrain generation.
+Multi-octave Perlin noise implementation for procedural terrain generation.
 """
 
 import random
 import math
-from typing import List, Tuple
+import numpy as np
+from typing import List, Tuple, Dict, Any
 
 class PerlinNoise:
-    def __init__(self, seed: int = 42):
-        self.seed = seed
-        self.permutation = self._generate_permutation_table()
+    """
+    Pure Python implementation of Perlin noise with multi-octave support.
+    """
 
-    def _generate_permutation_table(self) -> List[int]:
-        """Generate permutation table for noise"""
+    def __init__(self, seed: int = None, octaves: int = 6, persistence: float = 0.5, lacunarity: float = 2.0):
+        """
+        Initialize Perlin noise generator.
+
+        Args:
+            seed: Random seed for reproducible noise
+            octaves: Number of octaves for fractional Brownian motion
+            persistence: Amplitude reduction per octave
+            lacunarity: Frequency increase per octave
+        """
+        self.seed = seed or random.randint(0, 1000000)
+        self.octaves = octaves
+        self.persistence = persistence
+        self.lacunarity = lacunarity
+
+        # Initialize permutation table
+        self.permutation = self._initialize_permutation()
+
+    def _initialize_permutation(self) -> List[int]:
+        """Initialize permutation table with seed."""
         random.seed(self.seed)
-        p = list(range(256))
-        random.shuffle(p)
-        return p * 2
+        permutation = list(range(256))
+        random.shuffle(permutation)
+        return permutation * 2
 
     def _fade(self, t: float) -> float:
-        """Fade function for smooth interpolation"""
+        """Fade function for smooth interpolation."""
         return t * t * t * (t * (t * 6 - 15) + 10)
 
-    def _lerp(self, t: float, a: float, b: float) -> float:
-        """Linear interpolation"""
+    def _lerp(self, a: float, b: float, t: float) -> float:
+        """Linear interpolation."""
         return a + t * (b - a)
 
     def _grad(self, hash: int, x: float, y: float, z: float) -> float:
-        """Gradient function"""
+        """Gradient function."""
         h = hash & 15
         u = x if h < 8 else y
         v = y if h < 4 else (x if h == 12 or h == 14 else z)
         return (u if (h & 1) == 0 else -u) + (v if (h & 2) == 0 else -v)
 
-    def noise(self, x: float, y: float, z: float = 0) -> float:
-        """Generate 3D Perlin noise"""
-        # Find unit cube containing point
-        xi = int(x) & 255
-        yi = int(y) & 255
-        zi = int(z) & 255
+    def _noise2d(self, x: float, y: float) -> float:
+        """Generate 2D Perlin noise at given coordinates."""
+        # Find unit grid cell containing point
+        X = int(x) & 255
+        Y = int(y) & 255
 
-        # Find relative x, y, z of point in cube
-        xf = x - int(x)
-        yf = y - int(y)
-        zf = z - int(z)
+        # Get relative xy coordinates of point within that cell
+        x -= int(x)
+        y -= int(y)
 
-        # Compute fade curves for each of x, y, z
-        u = self._fade(xf)
-        v = self._fade(yf)
-        w = self._fade(zf)
+        # Compute fade curves for each of x, y
+        u = self._fade(x)
+        v = self._fade(y)
 
-        # Hash coordinates of the 8 cube corners
-        aaa = self.permutation[self.permutation[xi] + yi] + zi
-        aba = self.permutation[self.permutation[xi] + yi + 1] + zi
-        aab = self.permutation[self.permutation[xi] + yi] + zi + 1
-        abb = self.permutation[self.permutation[xi] + yi + 1] + zi + 1
-        baa = self.permutation[self.permutation[xi + 1] + yi] + zi
-        bba = self.permutation[self.permutation[xi + 1] + yi + 1] + zi
-        bab = self.permutation[self.permutation[xi + 1] + yi] + zi + 1
-        bbb = self.permutation[self.permutation[xi + 1] + yi + 1] + zi + 1
+        # Hash coordinates of the 4 cube corners
+        A = self.permutation[X] + Y
+        AA = self.permutation[A]
+        AB = self.permutation[A + 1]
+        B = self.permutation[X + 1] + Y
+        BA = self.permutation[B]
+        BB = self.permutation[B + 1]
 
-        # Calculate gradients
-        grad_aaa = self._grad(self.permutation[aaa], xf, yf, zf)
-        grad_aba = self._grad(self.permutation[aba], xf - 1, yf, zf)
-        grad_aab = self._grad(self.permutation[aab], xf, yf - 1, zf)
-        grad_abb = self._grad(self.permutation[abb], xf - 1, yf - 1, zf)
-        grad_baa = self._grad(self.permutation[baa], xf, yf, zf - 1)
-        grad_bba = self._grad(self.permutation[bba], xf - 1, yf, zf - 1)
-        grad_bab = self._grad(self.permutation[bab], xf, yf - 1, zf - 1)
-        grad_bbb = self._grad(self.permutation[bbb], xf - 1, yf - 1, zf - 1)
+        # Blend results from 4 corners of cube
+        return self._lerp(
+            self._lerp(self._grad(self.permutation[AA], x, y, 0),
+                      self._grad(self.permutation[BA], x - 1, y, 0), u),
+            self._lerp(self._grad(self.permutation[AB], x, y - 1, 0),
+                      self._grad(self.permutation[BB], x - 1, y - 1, 0), u),
+            v
+        )
 
-        # Interpolate along x
-        x1 = self._lerp(u, grad_aaa, grad_aba)
-        x2 = self._lerp(u, grad_aab, grad_abb)
-        x3 = self._lerp(u, grad_baa, grad_bba)
-        x4 = self._lerp(u, grad_bab, grad_bbb)
+    def noise(self, x: float, y: float) -> float:
+        """
+        Generate fractional Brownian motion noise at given coordinates.
 
-        # Interpolate along y
-        y1 = self._lerp(v, x1, x2)
-        y2 = self._lerp(v, x3, x4)
+        Args:
+            x: X coordinate
+            y: Y coordinate
 
-        # Interpolate along z
-        return self._lerp(w, y1, y2)
+        Returns:
+            Noise value in range [-1, 1]
+        """
+        total = 0.0
+        frequency = 1.0
+        amplitude = 1.0
+        max_value = 0.0
 
-    def octave_noise(self, x: float, y: float, octaves: int = 4, persistence: float = 0.5, lacunarity: float = 2.0) -> float:
-        """Generate multi-octave Perlin noise"""
-        total = 0
-        frequency = 1
-        amplitude = 1
-        max_value = 0
-
-        for _ in range(octaves):
-            total += self.noise(x * frequency, y * frequency) * amplitude
+        for _ in range(self.octaves):
+            total += self._noise2d(x * frequency, y * frequency) * amplitude
             max_value += amplitude
-            amplitude *= persistence
-            frequency *= lacunarity
+            frequency *= self.lacunarity
+            amplitude *= self.persistence
 
+        # Normalize to [-1, 1] range
         return total / max_value
 
-    def generate_heightmap(self, width: int, height: int, scale: float = 0.1, octaves: int = 4) -> List[List[float]]:
-        """Generate a 2D heightmap"""
-        heightmap = []
+    def generate_heightmap(self, width: int, height: int, scale: float = 50.0) -> np.ndarray:
+        """
+        Generate a 2D heightmap using Perlin noise.
+
+        Args:
+            width: Width of heightmap
+            height: Height of heightmap
+            scale: Noise scale factor
+
+        Returns:
+            2D numpy array of height values
+        """
+        heightmap = np.zeros((height, width))
+
         for y in range(height):
-            row = []
             for x in range(width):
-                nx = x / width - 0.5
-                ny = y / height - 0.5
-                elevation = self.octave_noise(nx * scale, ny * scale, octaves)
-                row.append((elevation + 1) / 2)  # Normalize to 0-1 range
-            heightmap.append(row)
+                # Scale coordinates to get more interesting features
+                nx = x / width * scale
+                ny = y / height * scale
+
+                # Get noise value and normalize to [0, 1]
+                noise_val = (self.noise(nx, ny) + 1) / 2
+                heightmap[y, x] = noise_val
+
         return heightmap
+
+    def generate_island_heightmap(self, width: int, height: int, island_factor: float = 2.0) -> np.ndarray:
+        """
+        Generate an island-shaped heightmap.
+
+        Args:
+            width: Width of heightmap
+            height: Height of heightmap
+            island_factor: Controls how "island-like" the terrain is
+
+        Returns:
+            2D numpy array of height values
+        """
+        heightmap = self.generate_heightmap(width, height)
+
+        # Create island effect by reducing height based on distance from center
+        center_x, center_y = width / 2, height / 2
+
+        for y in range(height):
+            for x in range(width):
+                # Calculate distance from center (normalized)
+                dx = (x - center_x) / width
+                dy = (y - center_y) / height
+                distance = math.sqrt(dx*dx + dy*dy)
+
+                # Apply island falloff
+                falloff = 1.0 - distance ** island_factor
+                heightmap[y, x] = heightmap[y, x] * max(falloff, 0.1)
+
+        return heightmap
+
+# Utility functions
+def normalize_heightmap(heightmap: np.ndarray) -> np.ndarray:
+    """
+    Normalize heightmap to 0-1 range.
+
+    Args:
+        heightmap: Input heightmap
+
+    Returns:
+        Normalized heightmap
+    """
+    min_val = heightmap.min()
+    max_val = heightmap.max()
+
+    if max_val - min_val > 0:
+        return (heightmap - min_val) / (max_val - min_val)
+    return heightmap
+
+def apply_erosion(heightmap: np.ndarray, iterations: int = 3, radius: int = 1) -> np.ndarray:
+    """
+    Apply simple erosion simulation to heightmap.
+
+    Args:
+        heightmap: Input heightmap
+        iterations: Number of erosion iterations
+        radius: Erosion radius
+
+    Returns:
+        Eroded heightmap
+    """
+    eroded = heightmap.copy()
+
+    for _ in range(iterations):
+        for y in range(radius, heightmap.shape[0] - radius):
+            for x in range(radius, heightmap.shape[1] - radius):
+                # Simple average of neighboring cells
+                total = 0
+                count = 0
+
+                for dy in range(-radius, radius + 1):
+                    for dx in range(-radius, radius + 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        total += heightmap[y + dy, x + dx]
+                        count += 1
+
+                if count > 0:
+                    average = total / count
+                    eroded[y, x] = (heightmap[y, x] + average) / 2
+
+    return eroded
+
+# Example usage
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
+    # Create noise generator
+    noise_gen = PerlinNoise(seed=42, octaves=6)
+
+    # Generate heightmap
+    heightmap = noise_gen.generate_island_heightmap(100, 100)
+
+    # Display
+    plt.imshow(heightmap, cmap='terrain')
+    plt.colorbar()
+    plt.title("SPECTRE Island Heightmap")
+    plt.show()

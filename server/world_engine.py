@@ -1,411 +1,532 @@
-"""
-World Engine
 
-Core procedural world generation and management system.
+"""
+SPECTRE World Generation - World Engine
+
+Core world generation and management engine.
 """
 
+import uuid
 import random
-import math
-import json
-import sqlite3
-from typing import Dict, List, Any, Optional
+import time
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
+import numpy as np
+from terrain.noise import PerlinNoise
+from terrain.biomes import BiomeClassifier
+from terrain.mesh import TerrainMeshGenerator
 
 class WorldEngine:
+    """
+    Core world generation and management engine.
+    """
+
     def __init__(self):
-        self.world_state = {
-            "seed": 42,
-            "size": 64,
+        self.worlds: Dict[str, Dict] = {}
+        self.poi_counter = 0
+        self.event_counter = 0
+        self.lore_counter = 0
+
+        # Initialize terrain components
+        self.noise_gen = PerlinNoise()
+        self.biome_classifier = BiomeClassifier()
+        self.mesh_gen = TerrainMeshGenerator()
+
+    def create_world(self, width: int = 64, height: int = 64, seed: Optional[str] = None, island_mode: bool = True) -> Dict[str, Any]:
+        """
+        Create a new procedural world.
+
+        Args:
+            width: World width
+            height: World height
+            seed: Random seed for reproducibility
+            island_mode: Generate island-style terrain
+
+        Returns:
+            World data dictionary
+        """
+        world_id = str(uuid.uuid4())
+        seed_value = seed or str(random.randint(0, 1000000))
+
+        # Generate terrain
+        if island_mode:
+            heightmap = self.noise_gen.generate_island_heightmap(width, height, seed=int(seed_value))
+        else:
+            heightmap = self.noise_gen.generate_heightmap(width, height, seed=int(seed_value))
+
+        # Classify biomes
+        moisture_map = self.biome_classifier.generate_moisture_map(heightmap, seed=int(seed_value))
+        biome_grid, biome_stats = self.biome_classifier.classify_heightmap(heightmap, moisture_map)
+
+        # Generate mesh data
+        mesh_data = self.mesh_gen.generate_biome_mesh_data(heightmap, biome_grid)
+
+        # Create world data
+        world_data = {
+            "id": world_id,
+            "width": width,
+            "height": height,
+            "seed": seed_value,
+            "island_mode": island_mode,
+            "created_at": datetime.now().isoformat(),
+            "heightmap": heightmap.tolist(),
+            "biomes": biome_grid.tolist(),
+            "moisture": moisture_map.tolist(),
+            "mesh": mesh_data,
+            "statistics": {
+                "biome_distribution": biome_stats,
+                "poi_count": 0,
+                "named_regions": 0,
+                "lore_entries": 0
+            },
             "regions": {},
             "pois": {},
-            "lore": []
-        }
-        self.db_path = "world.db"
-        self._initialize_database()
-
-    def _initialize_database(self):
-        """Initialize SQLite database for world persistence"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Create tables
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS worlds (
-            id INTEGER PRIMARY KEY,
-            seed INTEGER,
-            size INTEGER,
-            created_at TEXT,
-            updated_at TEXT
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS regions (
-            id INTEGER PRIMARY KEY,
-            world_id INTEGER,
-            x INTEGER,
-            y INTEGER,
-            biome TEXT,
-            name TEXT,
-            description TEXT,
-            FOREIGN KEY (world_id) REFERENCES worlds (id)
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pois (
-            id TEXT PRIMARY KEY,
-            world_id INTEGER,
-            x INTEGER,
-            y INTEGER,
-            poi_type TEXT,
-            name TEXT,
-            description TEXT,
-            details TEXT,
-            FOREIGN KEY (world_id) REFERENCES worlds (id)
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS lore (
-            id INTEGER PRIMARY KEY,
-            world_id INTEGER,
-            lore_type TEXT,
-            theme TEXT,
-            content TEXT,
-            created_at TEXT,
-            FOREIGN KEY (world_id) REFERENCES worlds (id)
-        )
-        """)
-
-        conn.commit()
-        conn.close()
-
-    def create_world(self, seed: int = 42, size: int = 64, island_mode: bool = True):
-        """Generate a new procedural world"""
-        self.world_state = {
-            "seed": seed,
-            "size": size,
-            "regions": {},
-            "pois": {},
-            "lore": []
+            "lore": {},
+            "timeline": []
         }
 
-        random.seed(seed)
+        # Store world
+        self.worlds[world_id] = world_data
 
-        # Generate basic terrain (placeholder - will be enhanced by terrain module)
-        for x in range(size):
-            for y in range(size):
-                region_id = f"{x},{y}"
+        return world_data
 
-                # Simple biome determination based on position
-                distance_from_center = math.sqrt((x - size/2)**2 + (y - size/2)**2)
-                center_distance_ratio = distance_from_center / (size * 0.707)
+    def get_world(self, world_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get world data by ID.
 
-                if center_distance_ratio < 0.3:
-                    biome = "grassland"
-                elif center_distance_ratio < 0.6:
-                    biome = "forest"
-                elif center_distance_ratio < 0.8:
-                    biome = "hills"
-                else:
-                    biome = "mountain"
+        Args:
+            world_id: World identifier
 
-                self.world_state["regions"][region_id] = {
-                    "x": x,
-                    "y": y,
-                    "biome": biome,
-                    "name": "",
-                    "description": ""
-                }
+        Returns:
+            World data or None if not found
+        """
+        return self.worlds.get(world_id)
 
-        # Add some initial POIs
-        self._generate_initial_pois()
+    def get_statistics(self, world_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get world statistics.
 
-        # Save to database
-        self._save_world_state()
+        Args:
+            world_id: World identifier
 
-        return {
-            "status": "success",
-            "world": self.world_state
-        }
+        Returns:
+            Statistics dictionary or None
+        """
+        world = self.get_world(world_id)
+        if not world:
+            return None
 
-    def _generate_initial_pois(self):
-        """Generate initial points of interest"""
-        size = self.world_state["size"]
-        poi_types = ["settlement", "ruins", "landmark", "dungeon"]
+        return world.get("statistics", {})
 
-        for i in range(10):  # 10 initial POIs
-            x = random.randint(0, size - 1)
-            y = random.randint(0, size - 1)
-            poi_type = random.choice(poi_types)
+    def get_region(self, world_id: str, x: int, y: int) -> Optional[Dict[str, Any]]:
+        """
+        Get region details at specific coordinates.
 
-            poi_id = f"poi_{i}"
-            self.world_state["pois"][poi_id] = {
-                "id": poi_id,
-                "type": poi_type,
+        Args:
+            world_id: World identifier
+            x: X coordinate
+            y: Y coordinate
+
+        Returns:
+            Region data or None
+        """
+        world = self.get_world(world_id)
+        if not world:
+            return None
+
+        # Create region key
+        region_key = f"{x},{y}"
+
+        # Get or create region
+        if region_key not in world["regions"]:
+            biome = world["biomes"][y][x]
+            height = world["heightmap"][y][x]
+
+            world["regions"][region_key] = {
                 "x": x,
                 "y": y,
-                "name": f"Unnamed {poi_type}",
-                "description": "",
-                "details": {}
+                "biome": biome,
+                "height": height,
+                "name": None,
+                "description": None,
+                "discovered": False,
+                "explored": False
             }
 
-    def _save_world_state(self):
-        """Save current world state to database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        return world["regions"][region_key]
 
-        # Save world metadata
-        cursor.execute("""
-        INSERT INTO worlds (seed, size, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
-        """, (
-            self.world_state["seed"],
-            self.world_state["size"],
-            datetime.now().isoformat(),
-            datetime.now().isoformat()
-        ))
+    def name_region(self, world_id: str, x: int, y: int, name: str, style: str = "fantasy") -> Dict[str, Any]:
+        """
+        Name a region.
 
-        world_id = cursor.lastrowid
+        Args:
+            world_id: World identifier
+            x: X coordinate
+            y: Y coordinate
+            name: Region name
+            style: Naming style
 
-        # Save regions
-        for region_id, region in self.world_state["regions"].items():
-            cursor.execute("""
-            INSERT INTO regions (world_id, x, y, biome, name, description)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                world_id,
-                region["x"],
-                region["y"],
-                region["biome"],
-                region["name"],
-                region["description"]
-            ))
+        Returns:
+            Updated region data
+        """
+        world = self.get_world(world_id)
+        if not world:
+            raise ValueError("World not found")
 
-        # Save POIs
-        for poi_id, poi in self.world_state["pois"].items():
-            cursor.execute("""
-            INSERT INTO pois (id, world_id, x, y, poi_type, name, description, details)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                poi_id,
-                world_id,
-                poi["x"],
-                poi["y"],
-                poi["type"],
-                poi["name"],
-                poi["description"],
-                json.dumps(poi.get("details", {}))
-            ))
+        region = self.get_region(world_id, x, y)
+        if not region:
+            raise ValueError("Region not found")
 
-        conn.commit()
-        conn.close()
+        region_key = f"{x},{y}"
 
-    def get_world_state(self):
-        """Get current world state"""
-        return self.world_state
+        # Update region
+        world["regions"][region_key]["name"] = name
+        world["regions"][region_key]["discovered"] = True
 
-    def get_regions(self):
-        """Get all regions"""
-        return list(self.world_state["regions"].values())
+        # Update statistics
+        world["statistics"]["named_regions"] = world["statistics"].get("named_regions", 0) + 1
 
-    def get_pois(self):
-        """Get all points of interest"""
-        return list(self.world_state["pois"].values())
+        return world["regions"][region_key]
 
-    def get_region(self, x: int, y: int):
-        """Get region details"""
-        region_id = f"{x},{y}"
-        return self.world_state["regions"].get(region_id, {})
+    def describe_region(self, world_id: str, x: int, y: int) -> str:
+        """
+        Generate rich description for a region.
 
-    def name_region(self, x: int, y: int, name: str, biome: str):
-        """Name a region"""
-        region_id = f"{x},{y}"
-        if region_id in self.world_state["regions"]:
-            self.world_state["regions"][region_id]["name"] = name
-            self.world_state["regions"][region_id]["biome"] = biome
+        Args:
+            world_id: World identifier
+            x: X coordinate
+            y: Y coordinate
 
-            # Save to database
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-            UPDATE regions
-            SET name = ?, biome = ?
-            WHERE world_id = (SELECT MAX(id) FROM worlds)
-            AND x = ? AND y = ?
-            """, (name, biome, x, y))
-            conn.commit()
-            conn.close()
+        Returns:
+            Descriptive text
+        """
+        region = self.get_region(world_id, x, y)
+        if not region:
+            raise ValueError("Region not found")
 
-            return {"status": "success", "region": self.world_state["regions"][region_id]}
+        biome = region["biome"]
+        region_name = region.get("name", f"Region at ({x}, {y})")
 
-        return {"status": "error", "message": "Region not found"}
+        # Generate biome-specific description
+        description = self.biome_classifier.generate_biome_description(biome, region_name)
 
-    def create_poi(self, poi_type: str, x: int, y: int, name: str = ""):
-        """Create a new point of interest"""
-        poi_id = f"poi_{len(self.world_state['pois'])}"
-        poi_name = name if name else f"Unnamed {poi_type}"
+        # Update region
+        region_key = f"{x},{y}"
+        world = self.get_world(world_id)
+        world["regions"][region_key]["description"] = description
+        world["regions"][region_key]["explored"] = True
 
-        self.world_state["pois"][poi_id] = {
+        return description
+
+    def batch_name_regions(self, world_id: str, regions: List[Dict], style: str = "fantasy") -> List[Dict]:
+        """
+        Name multiple regions at once.
+
+        Args:
+            world_id: World identifier
+            regions: List of region data
+            style: Naming style
+
+        Returns:
+            List of updated regions
+        """
+        results = []
+
+        for region_data in regions:
+            x = region_data.get("x")
+            y = region_data.get("y")
+            name = region_data.get("name")
+
+            if x is None or y is None or name is None:
+                continue
+
+            result = self.name_region(world_id, x, y, name, style)
+            results.append(result)
+
+        return results
+
+    def list_pois(self, world_id: str) -> List[Dict]:
+        """
+        List all points of interest in a world.
+
+        Args:
+            world_id: World identifier
+
+        Returns:
+            List of POI dictionaries
+        """
+        world = self.get_world(world_id)
+        if not world:
+            return []
+
+        return list(world["pois"].values())
+
+    def create_poi(self, world_id: str, poi_type: str, x: int, y: int, name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Create a new point of interest.
+
+        Args:
+            world_id: World identifier
+            poi_type: Type of POI
+            x: X coordinate
+            y: Y coordinate
+            name: Optional POI name
+
+        Returns:
+            Created POI data
+        """
+        world = self.get_world(world_id)
+        if not world:
+            raise ValueError("World not found")
+
+        # Generate POI ID
+        self.poi_counter += 1
+        poi_id = f"poi_{self.poi_counter}"
+
+        # Generate name if not provided
+        if not name:
+            name = self._generate_poi_name(poi_type)
+
+        # Create POI data
+        poi_data = {
             "id": poi_id,
             "type": poi_type,
             "x": x,
             "y": y,
-            "name": poi_name,
-            "description": "",
-            "details": {}
+            "name": name,
+            "biome": world["biomes"][y][x],
+            "height": world["heightmap"][y][x],
+            "description": self._generate_poi_description(poi_type, name),
+            "npcs": [],
+            "rumors": [],
+            "secrets": [],
+            "connections": [],
+            "discovered": False,
+            "explored": False,
+            "created_at": datetime.now().isoformat()
         }
 
-        # Save to database
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT INTO pois (id, world_id, x, y, poi_type, name, description, details)
-        VALUES (?, (SELECT MAX(id) FROM worlds), ?, ?, ?, ?, ?, ?)
-        """, (poi_id, x, y, poi_type, poi_name, "", "{}"))
-        conn.commit()
-        conn.close()
+        # Add to world
+        world["pois"][poi_id] = poi_data
+        world["statistics"]["poi_count"] = len(world["pois"])
 
-        return self.world_state["pois"][poi_id]
+        return poi_data
 
-    def update_poi(self, poi_id: str, updates: dict):
-        """Update a point of interest"""
-        if poi_id in self.world_state["pois"]:
-            self.world_state["pois"][poi_id].update(updates)
+    def update_poi(self, world_id: str, poi_id: str, updates: Dict) -> Dict[str, Any]:
+        """
+        Update an existing POI.
 
-            # Save to database
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-            UPDATE pois
-            SET name = ?,
-                description = ?,
-                details = ?
-            WHERE id = ?
-            """, (
-                self.world_state["pois"][poi_id]["name"],
-                self.world_state["pois"][poi_id]["description"],
-                json.dumps(self.world_state["pois"][poi_id].get("details", {})),
-                poi_id
-            ))
-            conn.commit()
-            conn.close()
+        Args:
+            world_id: World identifier
+            poi_id: POI identifier
+            updates: Dictionary of updates
 
-            return self.world_state["pois"][poi_id]
+        Returns:
+            Updated POI data
+        """
+        world = self.get_world(world_id)
+        if not world or poi_id not in world["pois"]:
+            raise ValueError("POI not found")
 
-        return {"status": "error", "message": "POI not found"}
+        # Apply updates
+        for key, value in updates.items():
+            if key in world["pois"][poi_id]:
+                world["pois"][poi_id][key] = value
 
-    def detail_poi(self, poi_id: str):
-        """Generate detailed information for a POI"""
-        if poi_id not in self.world_state["pois"]:
-            return {"status": "error", "message": "POI not found"}
+        return world["pois"][poi_id]
 
-        poi = self.world_state["pois"][poi_id]
+    def detail_poi(self, world_id: str, poi_id: str, detail_level: str = "medium") -> Dict[str, Any]:
+        """
+        Generate detailed content for a POI.
+
+        Args:
+            world_id: World identifier
+            poi_id: POI identifier
+            detail_level: Level of detail
+
+        Returns:
+            Detailed POI data
+        """
+        world = self.get_world(world_id)
+        if not world or poi_id not in world["pois"]:
+            raise ValueError("POI not found")
+
+        poi = world["pois"][poi_id]
         poi_type = poi["type"]
 
         # Generate NPCs
-        npcs = []
-        for i in range(random.randint(2, 5)):
-            npcs.append({
-                "id": f"npc_{i}",
-                "name": f"{random.choice(['Eldrin', 'Thalindra', 'Gorim', 'Lysara', 'Borin'])} {random.choice(['Stoneheart', 'Swiftblade', 'Moonshadow', 'Ironvein', 'Stormcaller'])}",
-                "role": random.choice(["Mayor", "Blacksmith", "Innkeeper", "Mage", "Guard", "Merchant"]),
-                "description": f"A {random.choice(['wise', 'mysterious', 'friendly', 'grumpy', 'eccentric'])} {random.choice(['elf', 'dwarf', 'human', 'halfling', 'gnome'])}"
-            })
+        npc_count = 3 if detail_level == "high" else 2 if detail_level == "medium" else 1
+        poi["npcs"] = [self._generate_npc(poi_type) for _ in range(npc_count)]
 
         # Generate rumors
-        rumors = []
-        for i in range(random.randint(3, 6)):
-            rumors.append({
-                "id": f"rumor_{i}",
-                "content": random.choice([
-                    f"The old {random.choice(['temple', 'mine', 'fortress', 'library'])} beneath the {random.choice(['mountain', 'forest', 'lake', 'ruins'])} is said to contain {random.choice(['ancient treasures', 'forbidden knowledge', 'a sleeping dragon', 'the key to immortality'])}",
-                    f"Strange lights have been seen near the {random.choice(['standing stones', 'abandoned tower', 'cursed swamp', 'whispering woods'])} at {random.choice(['midnight', 'dawn', 'dusk', 'the full moon'])}",
-                    f"The {random.choice(['ghost', 'spirit', 'mysterious figure', 'ancient guardian'])} of {random.choice(['Lady Elara', 'Lord Malakar', 'the Forgotten King', 'the Sorceress Queen'])} is said to {random.choice(['protect', 'haunt', 'guide', 'test'])} travelers who pass through these lands",
-                    f"Whispers speak of a {random.choice(['secret passage', 'hidden treasure', 'ancient artifact', 'forgotten prophecy'])} that could {random.choice(['save the kingdom', 'bring great power', 'unleash darkness', 'change the course of history'])}"
-                ])
-            })
+        rumor_count = 5 if detail_level == "high" else 3 if detail_level == "medium" else 1
+        poi["rumors"] = [self._generate_rumor(poi_type, poi["name"]) for _ in range(rumor_count)]
 
-        # Update POI details
-        details = {
-            "npcs": npcs,
-            "rumors": rumors,
-            "secrets": random.randint(0, 3)
-        }
+        # Generate secrets
+        if detail_level in ["medium", "high"]:
+            secret_count = 2 if detail_level == "high" else 1
+            poi["secrets"] = [self._generate_secret(poi_type) for _ in range(secret_count)]
 
-        self.world_state["pois"][poi_id]["details"] = details
+        poi["explored"] = True
 
-        # Save to database
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-        UPDATE pois
-        SET details = ?
-        WHERE id = ?
-        """, (json.dumps(details), poi_id))
-        conn.commit()
-        conn.close()
+        return poi
 
-        return self.world_state["pois"][poi_id]
+    def generate_world_lore(self, world_id: str, lore_type: str, themes: List[str] = []) -> Dict[str, Any]:
+        """
+        Generate world lore and mythology.
 
-    def generate_world_lore(self, lore_type: str, theme: str = "fantasy"):
-        """Generate world lore"""
-        lore_content = ""
+        Args:
+            world_id: World identifier
+            lore_type: Type of lore to generate
+            themes: Optional themes to incorporate
 
-        if lore_type == "creation_myth":
-            lore_content = (
-                "In the beginning, there was only the Void. From the Void emerged the First Ones, "
-                "who shaped the world with their dreams. The mountains were their thoughts, "
-                "the rivers their tears, and the forests their laughter. But when the First Ones "
-                "faded, they left behind the Echoes - the spirits that would become the first "
-                "mortals, destined to shape the world anew."
-            )
-        elif lore_type == "historical_event":
-            lore_content = (
-                f"In the year {random.randint(100, 1000)} of the Third Age, the great {random.choice(['Battle of the Five Armies', 'War of the Shattered Crown', 'Siege of the Obsidian Keep', 'Rising of the Shadow King'])} "
-                "took place in these lands. It was said that the very earth trembled as {random.choice(['dragons', 'ancient sorcerers', 'the gods themselves', 'forgotten beings'])} "
-                "walked among mortals. The {random.choice(['blood', 'magic', 'destruction', 'courage'])} spilled that day would echo through the ages..."
-            )
-        elif lore_type == "local_legend":
-            region = random.choice(list(self.world_state["regions"].values()))
-            lore_content = (
-                f"The {region['biome']} of {region.get('name', 'this land')} is said to be blessed - or cursed - "
-                f"by {random.choice(['an ancient spirit', 'a forgotten god', 'the ghost of a long-dead hero', 'a powerful enchantment'])}. "
-                f"Those who {random.choice(['respect the land', 'seek its secrets', 'disturb its peace', 'listen to the wind'])} "
-                f"may find {random.choice(['wisdom', 'treasure', 'danger', 'their destiny'])} waiting for them."
-            )
+        Returns:
+            Generated lore data
+        """
+        world = self.get_world(world_id)
+        if not world:
+            raise ValueError("World not found")
 
-        lore_entry = {
-            "id": f"lore_{len(self.world_state['lore'])}",
+        self.lore_counter += 1
+        lore_id = f"lore_{self.lore_counter}"
+
+        lore_content = self._generate_lore_content(lore_type, themes, world)
+
+        lore_data = {
+            "id": lore_id,
             "type": lore_type,
-            "theme": theme,
-            "content": lore_content
+            "title": self._generate_lore_title(lore_type),
+            "content": lore_content,
+            "themes": themes,
+            "created_at": datetime.now().isoformat()
         }
 
-        self.world_state["lore"].append(lore_entry)
+        world["lore"][lore_id] = lore_data
+        world["statistics"]["lore_entries"] = len(world["lore"])
 
-        # Save to database
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT INTO lore (world_id, lore_type, theme, content, created_at)
-        VALUES ((SELECT MAX(id) FROM worlds), ?, ?, ?, ?)
-        """, (lore_type, theme, lore_content, datetime.now().isoformat()))
-        conn.commit()
-        conn.close()
+        return lore_data
 
-        return lore_entry
+    def add_historical_event(self, world_id: str, event_type: str, description: str, date: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Add a historical event to world timeline.
 
-    def log_reflection(self, entry_type: str, content: str):
-        """Log a reflection to the build diary"""
-        # In a real implementation, this would write to the BUILD_DIARY.md
-        # For now, we'll just store it in memory
-        reflection = {
-            "timestamp": datetime.now().isoformat(),
-            "type": entry_type,
-            "content": content
+        Args:
+            world_id: World identifier
+            event_type: Type of event
+            description: Event description
+            date: Optional event date
+
+        Returns:
+            Created event data
+        """
+        world = self.get_world(world_id)
+        if not world:
+            raise ValueError("World not found")
+
+        self.event_counter += 1
+        event_id = f"event_{self.event_counter}"
+
+        event_date = date or self._generate_event_date()
+
+        event_data = {
+            "id": event_id,
+            "type": event_type,
+            "description": description,
+            "date": event_date,
+            "created_at": datetime.now().isoformat()
         }
 
-        # This would be enhanced to actually write to the build diary file
-        return {"status": "success", "reflection": reflection}
+        world["timeline"].append(event_data)
+        world["timeline"].sort(key=lambda e: e["date"])
+
+        return event_data
+
+    # Helper methods
+
+    def _generate_poi_name(self, poi_type: str) -> str:
+        """Generate a name for a POI based on its type."""
+        prefixes = {
+            "settlement": ["Vale", "Haven", "Keep", "Watch", "Rest", "Ford"],
+            "ruin": ["Elden", "Forgotten", "Ancient", "Lost", "Crumbled", "Fallen"],
+            "temple": ["Sanctum", "Shrine", "Altar", "Monastery", "Abbey", "Cathedral"],
+            "cave": ["Gloom", "Echo", "Whisper", "Dark", "Deep", "Hollow"],
+            "fortress": ["Iron", "Stone", "Black", "White", "Eagle", "Wolf"],
+            "mine": ["Deeprock", "Ironvein", "Gold", "Silver", "Crystal", "Ore"]
+        }
+
+        suffixes = {
+            "settlement": ["wood", "brook", "field", "hill", "dale", "mere"],
+            "ruin": ["tower", "hall", "citadel", "bastion", "spire", "keep"],
+            "temple": ["of Light", "of Shadows", "of the Moon", "of the Sun", "of Stars", "of Dawn"],
+            "cave": ["delve", "pit", "maw", "abyss", "chasm", "depths"],
+            "fortress": ["hold", "keep", "fort", "castle", "stronghold", "citadel"],
+            "mine": ["pit", "shaft", "delve", "tunnel", "gallery", "works"]
+        }
+
+        base = random.choice(prefixes.get(poi_type, ["Mystic"]))
+        end = random.choice(suffixes.get(poi_type, ["Place"]))
+
+        return f"{base}{end}"
+
+    def _generate_poi_description(self, poi_type: str, name: str) -> str:
+        """Generate description for a POI."""
+        descriptions = {
+            "settlement": f"{name} is a bustling settlement known for its {random.choice(['friendly inhabitants', 'vibrant market', 'ancient traditions', 'strategic location'])}.",
+            "ruin": f"The crumbling remains of {name} whisper tales of {random.choice(['ancient glory', 'forgotten magic', 'lost knowledge', 'past tragedies'])}.",
+            "temple": f"{name} stands as a sacred site where {random.choice(['pilgrims gather', 'mysteries unfold', 'ancient rituals persist', 'divine presence lingers'])}.",
+            "cave": f"Dark and foreboding, {name} hides {random.choice(['untold treasures', 'dangerous creatures', 'ancient secrets', 'forgotten pathways'])} within its depths.",
+            "fortress": f"{name} looms as an impregnable bastion, its walls bearing the scars of {random.choice(['countless battles', 'ancient sieges', 'generations of defenders', 'legendary conflicts'])}.",
+            "mine": f"Deep within {name}, miners toil to extract {random.choice(['precious ores', 'rare crystals', 'ancient artifacts', 'mystical minerals'])} from the earth."
+        }
+
+        return descriptions.get(poi_type, f"{name} is a place of mystery and wonder.")
+
+    def _generate_npc(self, poi_type: str) -> Dict[str, Any]:
+        """Generate an NPC for a POI."""
+        first_names = ["Aelric", "Brianna", "Cedric", "Daria", "Eamon", "Fiona", "Garrick", "Hilda"]
+        last_names = ["Ironwood", "Stormborn", "Frostveil", "Darkleaf", "Brightforge", "Shadowmere"]
+
+        roles = {
+            "settlement": ["Mayor", "Blacksmith", "Innkeeper", "Healer", "Guard", "Merchant"],
+            "ruin": ["Ghost", "Scholar", "Adventurer", "Guardian", "Looter", "Historian"],
+            "temple": ["High Priest", "Acolyte", "Paladin", "Seer", "Monk", "Confessor"],
+            "cave": ["Explorer", "Miner", "Bandit", "Hermit", "Beast", "Treasure Hunter"],
+            "fortress": ["Captain", "Soldier", "Armsmaster", "Scout", "Prisoner", "Spymaster"],
+            "mine": ["Foreman", "Miner", "Assayer", "Engineer", "Slave", "Prospector"]
+        }
+
+        return {
+            "id": f"npc_{uuid.uuid4().hex[:8]}",
+            "name": f"{random.choice(first_names)} {random.choice(last_names)}",
+            "role": random.choice(roles.get(poi_type, ["Mysterious Figure"])),
+            "description": self._generate_npc_description(poi_type),
+            "alignment": random.choice(["friendly", "neutral", "hostile", "unpredictable"])
+        }
+
+    def _generate_npc_description(self, poi_type: str) -> str:
+        """Generate description for an NPC."""
+        traits = {
+            "settlement": ["welcoming", "hardworking", "wise", "cunning", "generous", "suspicious"],
+            "ruin": ["haunted", "knowledgeable", "brave", "greedy", "cursed", "obsessed"],
+            "temple": ["devout", "mysterious", "peaceful", "fanatical", "enlightened", "ascetic"],
+            "cave": ["tough", "resourceful", "paranoid", "ruthless", "lonely", "determined"],
+            "fortress": ["disciplined", "vigilant", "loyal", "brutal", "strategic", "honorable"],
+            "mine": ["strong", "practical", "greedy", "skilled", "weary", "ambitious"]
+        }
+
+        return f"A {random.choice(traits.get(poi_type, ['mysterious']))} individual with {random.choice([' piercing eyes', ' a scarred face', ' an air of authority', ' a quiet demeanor'])}."
+
+    def _generate_rumor(self, poi_type: str, poi_name: str) -> str:
+        """Generate a rumor about a POI."""
+        rumor_types = {
+            "settlement": [
+                f"They say {poi_name} was built on {random.choice(['ancient ruins', 'a buried treasure', 'a sacred site', 'a dragon's hoard'])}.",
+                f"The {random.choice(['mayor', 'blacksmith', 'innkeeper'])} of {poi_name} is said to be {random.choice(['a spy', 'a wizard', 'a vampire', 'a saint'])}.",
+                f"Travelers whisper that {poi_name} hides {random.choice(['a secret tunnel', 'a magical artifact', 'a cursed relic', 'a portal to another world'])}."
+            ],
+            "ruin": [
+                f"{poi_name} is haunted by the ghost of {random.choice(['a betrayed king', 'a murdered priestess', 'a fallen warrior', 'a heartbroken lover'])}.",
+                f"They say {poi_name} was destroyed by {random.choice(['a dragon', 'a curse', 'an ancient weapon', 'divine wrath'])}.",
+                f"At midnight, the ruins of {poi_name} {random.choice(['glow with eerie light', 'echo with ghostly voices', 'reveal hidden passages', 'come alive with shadows'])}."
+            ],
+            "temple": [
+                f"{poi_name} is said to grant {random.choice(['visions', 'healing', 'curses', 'blessings'])} to those who {random.choice(['pray sincerely', 'offer sacrifices', 'solve its riddles', 'pass its trials'])}.",

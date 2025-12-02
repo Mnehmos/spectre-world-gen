@@ -1,90 +1,191 @@
 """
-SPECTRE Server Main Entry Point
+SPECTRE World Generation Server - Main Entry Point
 
-Handles FastAPI web server, MCP stdio protocol, and WebSocket broadcasting.
+FastAPI server with MCP protocol support and WebSocket broadcasting.
 """
 
 import asyncio
 import threading
 import queue
 import sys
-from fastapi import FastAPI, WebSocket
+import json
+from typing import Dict, Any, Optional
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from .mcp_handler import MCPHandler
+
 from .world_engine import WorldEngine
 from .events import EventBroadcaster
+from .mcp_handler import MCPHandler
+from .database import DatabaseManager
 
-app = FastAPI(title="SPECTRE World Generator API")
+# Global state
+app = FastAPI(title="SPECTRE World Generation Server",
+              description="MCP-compatible world generation server with live visualization",
+              version="0.1.0")
 
-# Initialize core components
-engine = WorldEngine()
-broadcaster = EventBroadcaster()
-mcp = MCPHandler(engine, broadcaster)
-
-# Thread-safe event queue for MCP → WebSocket communication
+# Event queue for cross-thread communication
 event_queue = queue.Queue()
 
-def mcp_stdio_thread():
-    """Run MCP handler in separate thread to avoid blocking async event loop"""
-    print("🚀 MCP Handler started on stdio")
-    mcp.run_stdio()
+# Initialize components
+engine = WorldEngine()
+broadcaster = EventBroadcaster(event_queue)
+database = DatabaseManager("spectre_world.db")
+mcp_handler = MCPHandler(engine, broadcaster, database)
 
-async def broadcast_loop():
-    """Consume events from MCP and broadcast via WebSocket"""
-    while True:
-        try:
-            event = await asyncio.get_event_loop().run_in_executor(
-                None, event_queue.get
-            )
-            await broadcaster.emit(event)
-        except Exception as e:
-            print(f"🚨 Broadcast loop error: {e}")
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Start broadcast loop in background
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(broadcast_loop())
+# Mount static files
+app.mount("/web", StaticFiles(directory="web"), name="web")
 
-# WebSocket endpoint for live updates
+# WebSocket connections
+active_connections: Dict[str, WebSocket] = {}
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for live event broadcasting.
+    """
     await websocket.accept()
-    print("🔌 WebSocket client connected")
+    connection_id = str(id(websocket))
+    active_connections[connection_id] = websocket
 
     try:
         while True:
-            # Keep connection alive, actual events come from broadcaster
-            await websocket.receive_text()
+            # Wait for events from the queue
+            event_data = await asyncio.get_event_loop().run_in_executor(
+                None, event_queue.get
+            )
+
+            if event_data:
+                try:
+                    # Send event to client
+                    await websocket.send_text(json.dumps(event_data))
+                except Exception as e:
+                    print(f"Error sending WebSocket message: {e}")
+                    break
+
+    except WebSocketDisconnect:
+        print(f"Client {connection_id} disconnected")
+    finally:
+        if connection_id in active_connections:
+            del active_connections[connection_id]
+
+# Event broadcasting loop
+async def broadcast_loop():
+    """
+    Process events from the queue and broadcast to all WebSocket clients.
+    """
+    while True:
+        try:
+            event_data = await asyncio.get_event_loop().run_in_executor(
+                None, event_queue.get
+            )
+
+            if event_data and active_connections:
+                disconnected = []
+                for conn_id, websocket in active_connections.items():
+                    try:
+                        await websocket.send_text(json.dumps(event_data))
+                    except Exception as e:
+                        print(f"Error broadcasting to {conn_id}: {e}")
+                        disconnected.append(conn_id)
+
+                # Clean up disconnected clients
+                for conn_id in disconnected:
+                    if conn_id in active_connections:
+                        del active_connections[conn_id]
+
+        except Exception as e:
+            print(f"Broadcast loop error: {e}")
+            await asyncio.sleep(1)
+
+# MCP stdio handler in separate thread
+def run_mcp_stdio():
+    """
+    Run MCP protocol handler on stdio in separate thread.
+    """
+    print("🔌 MCP Handler started on stdio")
+    try:
+        mcp_handler.run_stdio()
     except Exception as e:
-        print(f"🔌 WebSocket disconnected: {e}")
+        print(f"MCP Handler error: {e}")
+        event_queue.put({
+            "type": "error",
+            "message": f"MCP Handler failed: {str(e)}",
+            "source": "server"
+        })
 
-# API Endpoints
-@app.get("/api/world")
-async def get_world():
-    """Get current world state"""
-    return {"world": engine.get_world_state()}
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    """
+    Initialize server components on startup.
+    """
+    print("🚀 Starting SPECTRE World Generation Server")
 
-@app.get("/api/regions")
-async def get_regions():
-    """Get all regions"""
-    return {"regions": engine.get_regions()}
+    # Initialize database
+    await database.initialize()
 
-@app.get("/api/pois")
-async def get_pois():
-    """Get all points of interest"""
-    return {"pois": engine.get_pois()}
+    # Start broadcast loop
+    asyncio.create_task(broadcast_loop())
 
-# Serve static files (web UI)
-app.mount("/", StaticFiles(directory="../web", html=True), name="web")
-
-def main():
-    """Start the SPECTRE server"""
-    # Start MCP handler in background thread
-    mcp_thread = threading.Thread(target=mcp_stdio_thread, daemon=True)
+    # Start MCP handler in separate thread
+    mcp_thread = threading.Thread(target=run_mcp_stdio, daemon=True)
     mcp_thread.start()
 
-    # Start FastAPI server
+    # Log startup event
+    event_queue.put({
+        "type": "system",
+        "message": "SPECTRE Server initialized",
+        "status": "ready"
+    })
+
+    print("✅ Server initialized and ready")
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Clean up resources on shutdown.
+    """
+    print("🛑 Shutting down SPECTRE Server")
+
+    # Close database connections
+    await database.close()
+
+    # Notify clients
+    if active_connections:
+        shutdown_event = {
+            "type": "system",
+            "message": "Server shutting down",
+            "status": "offline"
+        }
+
+        for websocket in active_connections.values():
+            try:
+                await websocket.send_text(json.dumps(shutdown_event))
+                await websocket.close()
+            except:
+                pass
+
+    event_queue.put({
+        "type": "system",
+        "message": "Server shutdown complete",
+        "status": "offline"
+    })
+
+    print("✅ Server shutdown complete")
+
+if __name__ == "__main__":
     uvicorn.run(
         "server.main:app",
         host="0.0.0.0",
@@ -92,6 +193,3 @@ def main():
         reload=True,
         log_level="info"
     )
-
-if __name__ == "__main__":
-    main()
