@@ -16,6 +16,11 @@ from world_engine import WorldEngine
 from events import EventBroadcaster
 from database import DatabaseManager
 
+
+def log_info(message: str) -> None:
+    """Log message to stderr to avoid corrupting MCP stdout protocol."""
+    print(message, file=sys.stderr, flush=True)
+
 class MCPHandler:
     """
     Handles MCP protocol communication via stdio.
@@ -51,7 +56,7 @@ class MCPHandler:
         Main loop for stdio-based MCP communication.
         """
         self.running = True
-        print("🔌 MCP Handler ready for commands")
+        log_info("🔌 MCP Handler ready for commands")
 
         try:
             while self.running:
@@ -92,28 +97,78 @@ class MCPHandler:
                     sys.stdout.flush()
 
         except Exception as e:
-            print(f"MCP Handler fatal error: {e}", file=sys.stderr)
+            log_info(f"MCP Handler fatal error: {e}")
             traceback.print_exc(file=sys.stderr)
 
-        print("🔌 MCP Handler stopped")
+        log_info("🔌 MCP Handler stopped")
 
     def handle_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle an MCP command.
+        Handle an MCP command with JSON-RPC 2.0 compliance.
 
         Args:
             command: MCP command dictionary
 
         Returns:
-            Response dictionary
+            JSON-RPC 2.0 compliant response dictionary
         """
         try:
-            # Validate command structure
-            if not isinstance(command, dict) or 'tool' not in command:
+            # Validate command is a dictionary
+            if not isinstance(command, dict):
                 return {
-                    "type": "error",
-                    "message": "Invalid command format",
-                    "received": command
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": -32600,
+                        "message": "Invalid command format: command must be a JSON object",
+                        "data": {
+                            "received": str(command)
+                        }
+                    }
+                }
+
+            # Extract command ID for JSON-RPC compliance
+            command_id = command.get('id')
+
+            # Validate JSON-RPC protocol version
+            if 'jsonrpc' not in command:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": command_id,
+                    "error": {
+                        "code": -32600,
+                        "message": "Invalid command format: missing required 'jsonrpc' field",
+                        "data": {
+                            "received": command
+                        }
+                    }
+                }
+
+            if command.get('jsonrpc') != '2.0':
+                return {
+                    "jsonrpc": "2.0",
+                    "id": command_id,
+                    "error": {
+                        "code": -32600,
+                        "message": f"Invalid JSON-RPC protocol version: {command.get('jsonrpc')} (expected '2.0')",
+                        "data": {
+                            "received": command
+                        }
+                    }
+                }
+
+            # Validate command structure
+            if 'tool' not in command:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": command_id,
+                    "error": {
+                        "code": -32600,
+                        "message": "Invalid command format: missing required 'tool' field",
+                        "data": {
+                            "received": command
+                        }
+                    }
                 }
 
             tool_name = command['tool']
@@ -124,33 +179,56 @@ class MCPHandler:
                 try:
                     result = self.tools[tool_name](tool_args)
                     return {
-                        "type": "success",
-                        "tool": tool_name,
-                        "result": result,
-                        "message": f"Tool {tool_name} executed successfully"
+                        "jsonrpc": "2.0",
+                        "id": command_id,
+                        "result": {
+                            "type": "success",
+                            "tool": tool_name,
+                            "data": result,
+                            "message": f"Tool {tool_name} executed successfully"
+                        }
                     }
                 except Exception as e:
                     return {
-                        "type": "error",
-                        "tool": tool_name,
-                        "message": f"Tool execution failed: {str(e)}",
-                        "error": str(e),
-                        "traceback": traceback.format_exc()
+                        "jsonrpc": "2.0",
+                        "id": command_id,
+                        "error": {
+                            "code": -32603,
+                            "message": f"Tool execution failed: {str(e)}",
+                            "data": {
+                                "tool": tool_name,
+                                "error": str(e),
+                                "traceback": traceback.format_exc()
+                            }
+                        }
                     }
             else:
                 return {
-                    "type": "error",
-                    "message": f"Unknown tool: {tool_name}",
-                    "available_tools": list(self.tools.keys())
+                    "jsonrpc": "2.0",
+                    "id": command_id,
+                    "error": {
+                        "code": -32601,
+                        "message": f"Unknown tool: {tool_name}",
+                        "data": {
+                            "available_tools": list(self.tools.keys())
+                        }
+                    }
                 }
 
         except Exception as e:
-            return {
-                "type": "error",
-                "message": f"Command handling failed: {str(e)}",
-                "error": str(e),
-                "traceback": traceback.format_exc()
+            error_response = {
+                "jsonrpc": "2.0",
+                "id": command_id,
+                "error": {
+                    "code": -32603,
+                    "message": f"Command handling failed: {str(e)}",
+                    "data": {
+                        "error": str(e),
+                        "traceback": traceback.format_exc()
+                    }
+                }
             }
+            return self.validate_jsonrpc_response(error_response)
 
     # Tool implementations
 
@@ -482,3 +560,33 @@ class MCPHandler:
             "diary": diary,
             "message": "Build diary retrieved successfully"
         }
+
+    def validate_jsonrpc_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate that a response meets JSON-RPC 2.0 specification.
+
+        Args:
+            response: Response dictionary to validate
+
+        Returns:
+            Validated response dictionary
+        """
+        # Ensure required fields are present
+        if "jsonrpc" not in response:
+            response["jsonrpc"] = "2.0"
+
+        if "id" not in response:
+            response["id"] = None  # Will be replaced by actual command ID in handle_command
+
+        # Ensure proper structure - either result or error, not both
+        has_result = "result" in response
+        has_error = "error" in response
+
+        if has_result and has_error:
+            # Remove error field if result is present
+            del response["error"]
+        elif not has_result and not has_error:
+            # Add result field if neither is present
+            response["result"] = {"status": "success"}
+
+        return response

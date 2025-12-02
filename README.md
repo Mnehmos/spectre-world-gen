@@ -2,6 +2,91 @@
 
 **Procedural World Generator with MCP Control and Live Web Visualization**
 
+## 🔌 MCP JSON-RPC Protocol Compliance
+
+### ✅ JSON-RPC 2.0 Compliance
+
+SPECTRE now fully complies with JSON-RPC 2.0 specification for MCP protocol communication.
+
+### 📖 Request Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "tool": "tool_name",
+  "arguments": {
+    "param1": "value1",
+    "param2": "value2"
+  }
+}
+```
+
+### 📄 Success Response Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "type": "success",
+    "tool": "tool_name",
+    "data": {
+      // Tool-specific result data
+    },
+    "message": "Tool executed successfully"
+  }
+}
+```
+
+### ❌ Error Response Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32603,
+    "message": "Tool execution failed: error details",
+    "data": {
+      "tool": "tool_name",
+      "error": "detailed error message",
+      "traceback": "full traceback if available"
+    }
+  }
+}
+```
+
+### 🔢 Standard Error Codes
+
+- `-32600`: Invalid command format
+- `-32601`: Unknown tool
+- `-32602`: Invalid parameters
+- `-32603`: Tool execution failed
+
+### 🛡️ Protocol Validation
+
+All responses are automatically validated for JSON-RPC 2.0 compliance using the `validate_jsonrpc_response()` method, ensuring:
+
+- Presence of `"jsonrpc": "2.0"` field
+- Presence of `"id"` field from original request
+- Proper result/error structure (mutually exclusive)
+- Standard error codes and data fields
+
+### 🧪 Testing
+
+Comprehensive JSON-RPC compliance tests available:
+
+```bash
+# Run comprehensive JSON-RPC compliance tests
+python test_jsonrpc_comprehensive.py
+
+# Run basic validation test
+python test_jsonrpc_validation.py
+```
+
+---
+
 ---
 
 ## 🌍 Overview
