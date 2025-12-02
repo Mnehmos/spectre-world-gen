@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPECTRE World Visualization</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dat.gui@0.7.9/build/dat.gui.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌍 SPECTRE World Generator</h1>
+            <div class="status-bar">
+                <span id="connection-status">🔴 Disconnected</span>
+                <span id="world-info">Loading...</span>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <div class="visualization-panel">
+                <div id="three-container"></div>
+                <div class="controls-overlay">
+                    <button id="reset-camera">🔄 Reset Camera</button>
+                    <button id="toggle-wireframe">🎨 Toggle Wireframe</button>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <div class="tabs">
+                    <button class="tab-button active" data-tab="events">📡 Event Feed</button>
+                    <button class="tab-button" data-tab="regions">🗺️ Regions</button>
+                    <button class="tab-button" data-tab="pois">🏰 POIs</button>
+                    <button class="tab-button" data-tab="stats">📊 Stats</button>
+                </div>
+
+                <div class="tab-content active" id="events-tab">
+                    <div class="event-feed" id="event-feed">
+                        <div class="event-item">🚀 Initializing SPECTRE World Generator...</div>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="regions-tab">
+                    <div class="region-grid" id="region-grid">
+                        <p>Select a region to view details...</p>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="pois-tab">
+                    <div class="poi-list" id="poi-list">
+                        <p>No points of interest yet...</p>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="stats-tab">
+                    <div class="statistics" id="statistics">
+                        <div class="stat-item">
+                            <span class="stat-label">World Size:</span>
+                            <span class="stat-value" id="world-size">0x0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Biomes:</span>
+                            <span class="stat-value" id="biome-count">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">POIs:</span>
+                            <span class="stat-value" id="poi-count">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Named Regions:</span>
+                            <span class="stat-value" id="named-regions">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <div class="controls">
+                <button id="connect-btn">🔌 Connect to Server</button>
+                <button id="generate-world">🌱 Generate World</button>
+                <button id="clear-events">🗑️ Clear Events</button>
+            </div>
+            <div class="status">
+                <span>SPECTRE ARCHITECT v0.1.0 | </span>
+                <span id="fps-counter">FPS: 0</span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="app.js" type="module"></script>
+    <script src="events.js" type="module"></script>
+</body>
+</html>

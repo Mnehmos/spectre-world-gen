@@ -1,0 +1,30 @@
+{
+  "name": "spectre-world-gen-web",
+  "version": "0.1.0",
+  "description": "Spectre World Generation - Web Visualization Interface",
+  "main": "index.html",
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.160.0",
+    "dat.gui": "^0.7.9",
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "vite": "^5.0.10",
+    "@vitejs/plugin-basic-ssl": "^1.0.1"
+  },
+  "keywords": [
+    "procedural",
+    "world",
+    "generation",
+    "visualization",
+    "threejs"
+  ],
+  "author": "SPECTRE ARCHITECT",
+  "license": "MIT",
+  "type": "module"
+}
