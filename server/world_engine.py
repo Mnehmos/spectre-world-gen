@@ -1,4 +1,3 @@
-
 """
 SPECTRE World Generation - World Engine
 
@@ -519,7 +518,7 @@ class WorldEngine:
         """Generate a rumor about a POI."""
         rumor_types = {
             "settlement": [
-                f"They say {poi_name} was built on {random.choice(['ancient ruins', 'a buried treasure', 'a sacred site', 'a dragon's hoard'])}.",
+                f"They say {poi_name} was built on {random.choice(['ancient ruins', 'a buried treasure', 'a sacred site', 'a dragon\'s hoard'])}.",
                 f"The {random.choice(['mayor', 'blacksmith', 'innkeeper'])} of {poi_name} is said to be {random.choice(['a spy', 'a wizard', 'a vampire', 'a saint'])}.",
                 f"Travelers whisper that {poi_name} hides {random.choice(['a secret tunnel', 'a magical artifact', 'a cursed relic', 'a portal to another world'])}."
             ],
@@ -530,3 +529,179 @@ class WorldEngine:
             ],
             "temple": [
                 f"{poi_name} is said to grant {random.choice(['visions', 'healing', 'curses', 'blessings'])} to those who {random.choice(['pray sincerely', 'offer sacrifices', 'solve its riddles', 'pass its trials'])}.",
+                f"The priests of {poi_name} guard a secret {random.choice(['artifact', 'ritual', 'truth', 'prophecy'])} that could {random.choice(['save the world', 'destroy nations', 'unlock ancient power', 'reveal the future'])}.",
+                f"Once a year, {poi_name} becomes the site of {random.choice(['a miraculous event', 'a terrifying ritual', 'a celestial phenomenon', 'a mystical gathering'])}."
+            ],
+            "cave": [
+                f"Deep in {poi_name}, there lies {random.choice(['a sleeping beast', 'a hidden treasure', 'an ancient civilization', 'a gateway to the underworld'])}.",
+                f"Those who enter {poi_name} {random.choice(['never return', 'come back changed', 'hear whispers', 'see visions', 'find what they seek'])}.",
+                f"{poi_name} is connected to {random.choice(['a network of tunnels', 'an underground kingdom', 'a lost city', 'the elemental planes'])}."
+            ],
+            "fortress": [
+                f"{poi_name} was built to {random.choice(['protect a secret', 'control the region', 'imprison a monster', 'guard a treasure'])}.",
+                f"The lord of {poi_name} is {random.choice(['a tyrant', 'a hero', 'a puppet', 'a vampire', 'a secret agent'])}.",
+                f"Beneath {poi_name}, there are {random.choice(['dungeons filled with prisoners', 'tunnels leading to escape', 'catacombs hiding secrets', 'ancient vaults'])}."
+            ],
+            "mine": [
+                f"The miners of {poi_name} have uncovered {random.choice(['strange bones', 'ancient runes', 'a glowing ore', 'a buried machine'])}.",
+                f"{poi_name} is cursed - {random.choice(['accidents happen daily', 'miners go missing', 'the earth itself fights back', 'whispers drive men mad'])}.",
+                f"Deep in {poi_name}, there's a vein of {random.choice(['pure gold', 'magic-infused crystal', 'blood-red gemstones', 'living metal'])}."
+            ]
+        }
+
+        return random.choice(rumor_types.get(poi_type, [f"Strange things happen at {poi_name}."]))
+
+    def _generate_secret(self, poi_type: str) -> str:
+        """Generate a secret about a POI."""
+        secrets = {
+            "settlement": [
+                "The town's well water has healing properties, but only during the full moon.",
+                "The mayor is actually a doppelganger who replaced the real mayor years ago.",
+                "Beneath the inn's cellar lies a portal to the fey realm.",
+                "Every generation, one child is secretly trained as an assassin for a hidden order."
+            ],
+            "ruin": [
+                "The ruins are actually a prison for an ancient elemental being.",
+                "At the center lies a time-frozen moment of the ruin's destruction.",
+                "The stones whisper the names of all who have died here.",
+                "One specific stone, when touched, shows visions of the ruin's past."
+            ],
+            "temple": [
+                "The high priest can see through the eyes of the temple's statues.",
+                "The altar is actually a dormant golem waiting for the right ritual.",
+                "Every confession spoken here is recorded in a magical ledger.",
+                "The temple's foundation stones are carved with the true names of gods."
+            ],
+            "cave": [
+                "The cave walls are lined with a bioluminescent fungus that reacts to thoughts.",
+                "Deep within, there's a pool that shows reflections of parallel worlds.",
+                "The cave is actually the mouth of a sleeping colossal beast.",
+                "Certain sounds echo back as prophecies in an unknown language."
+            ],
+            "fortress": [
+                "The fortress was built by slaves who secretly encoded a way to destroy it.",
+                "The commander's sword is actually a key to the fortress's true purpose.",
+                "Every soldier stationed here has the same recurring nightmare.",
+                "The fortress sits atop a gateway that opens during solar eclipses."
+            ],
+            "mine": [
+                "The miners are actually excavating an ancient buried spaceship.",
+                "Certain veins of ore contain trapped elemental spirits.",
+                "The mine's tunnels form a pattern that, when viewed from above, is a magical sigil.",
+                "Every 100 years, the mine produces a single perfect gem that grants wishes."
+            ]
+        }
+
+        return random.choice(secrets.get(poi_type, ["This place holds ancient mysteries."]))
+
+    def _generate_lore_content(self, lore_type: str, themes: List[str], world: Dict) -> str:
+        """Generate lore content."""
+        if lore_type == "creation_myth":
+            return self._generate_creation_myth(themes, world)
+        elif lore_type == "historical_event":
+            return self._generate_historical_lore(themes, world)
+        elif lore_type == "legend":
+            return self._generate_legend(themes, world)
+        else:
+            return self._generate_generic_lore(themes, world)
+
+    def _generate_creation_myth(self, themes: List[str], world: Dict) -> str:
+        """Generate a creation myth."""
+        myth_types = [
+            "In the beginning, there was only the Void, until {creator} spoke the world into being with {method}.",
+            "The world was born from the cosmic egg laid by {creator}, containing all that is and ever will be.",
+            "From the blood of the slain titan {creator}, the land rose and the seas filled with life.",
+            "The first beings, {creator}, wove the fabric of reality from their dreams and nightmares.",
+            "When the celestial dance of {creator} reached its climax, the world burst forth in a symphony of creation."
+        ]
+
+        creators = ["the All-Father", "the World-Serpent", "the Twin Gods", "the First Dreamer", "the Cosmic Weaver"]
+        methods = ["a single word", "the song of existence", "divine laughter", "a thunderous roar", "the breath of life"]
+
+        myth = random.choice(myth_types).format(
+            creator=random.choice(creators),
+            method=random.choice(methods)
+        )
+
+        # Add world-specific elements
+        if world.get("biomes"):
+            dominant_biome = max(world["biomes"], key=lambda x: list(world["biomes"].values()).count(x))
+            myth += f" The first land to rise was {self.biome_classifier.generate_biome_description(dominant_biome)}."
+
+        return myth
+
+    def _generate_historical_lore(self, themes: List[str], world: Dict) -> str:
+        """Generate historical lore."""
+        return "In the Age of {era}, the {event} changed the course of history, leaving behind {legacy} that still affects the world today.".format(
+            era=random.choice(["Dragons", "Kings", "Shadows", "Light", "Magic", "Steel"]),
+            event=random.choice(["Great War", "Forgotten Plague", "Celestial Alignment", "Divine Intervention", "Arcane Cataclysm"]),
+            legacy=random.choice(["ancient ruins", "magical artifacts", "cursed bloodlines", "lost knowledge", "hidden prophecies"])
+        )
+
+    def _generate_legend(self, themes: List[str], world: Dict) -> str:
+        """Generate a legend."""
+        return "They say that {hero}, armed with {weapon}, faced {challenge} and {outcome}, teaching us that {moral}.".format(
+            hero=random.choice(["the Last King", "the Nameless Hero", "the Witch of the Wilds", "the Blacksmith's Daughter"]),
+            weapon=random.choice(["a sword of starlight", "the wisdom of ages", "nothing but courage", "a broken dagger"]),
+            challenge=random.choice(["the Dragon of Despair", "the Army of Shadows", "the Riddle of Eternity", "the Curse of Time"]),
+            outcome=random.choice(["triumphed against all odds", "sacrificed everything", "vanished without a trace", "was forever changed"]),
+            moral=random.choice(["true strength comes from within", "some battles should not be fought", "love conquers all", "the greatest treasures are invisible"])
+        )
+
+    def _generate_generic_lore(self, themes: List[str], world: Dict) -> str:
+        """Generate generic lore."""
+        return "Long ago, when the world was young and magic flowed like rivers, {event} that shaped the land we know today.".format(
+            event=random.choice([
+                "the gods walked among mortals",
+                "beasts could speak and trees could walk",
+                "the veil between worlds was thin",
+                "time itself was fluid and changeable",
+                "dreams and reality were intertwined"
+            ])
+        )
+
+    def _generate_lore_title(self, lore_type: str) -> str:
+        """Generate a title for lore."""
+        titles = {
+            "creation_myth": [
+                "The Song of Creation",
+                "How the World Began",
+                "The First Dawn",
+                "Birth of the Cosmos",
+                "The Weaver's Pattern"
+            ],
+            "historical_event": [
+                "The {era} Chronicle",
+                "Annals of the {event}",
+                "Tale of the {hero}",
+                "The {place} Incident",
+                "When {thing} Changed"
+            ],
+            "legend": [
+                "The Legend of {hero}",
+                "How {hero} {action}",
+                "The {thing} of {place}",
+                "When {event} Occurred",
+                "The Truth About {secret}"
+            ]
+        }
+
+        return random.choice(titles.get(lore_type, ["The Ancient Tale"]))
+
+    def _generate_event_date(self) -> str:
+        """Generate a historical date."""
+        eras = ["Age of", "Era of", "Time of", "Reign of", "Year of"]
+        descriptors = ["Dragons", "Kings", "Shadows", "Light", "Magic", "Steel", "Storms", "Silence"]
+
+        return f"{random.randint(1, 9999)} {random.choice(eras)} {random.choice(descriptors)}"
+
+    def get_current_timestamp(self) -> str:
+        """Get current timestamp."""
+        return datetime.now().isoformat()
+
+    def get_build_diary(self) -> Dict[str, Any]:
+        """Get build diary content."""
+        return {
+            "entries": [],
+            "message": "Build diary content would be read from file in full implementation"
+        }

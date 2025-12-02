@@ -1,69 +1,110 @@
 """
-Event Broadcasting System
+SPECTRE World Generation - Event Broadcasting Module
 
-Handles WebSocket broadcasting and event management.
+Handles WebSocket event broadcasting and cross-thread communication.
 """
 
-import asyncio
+import queue
 import json
-from fastapi import WebSocket
-from typing import List, Dict, Any
+import threading
+from typing import Dict, Any, Optional
 
 class EventBroadcaster:
-    def __init__(self):
-        self.connections: List[WebSocket] = []
+    """
+    Manages event broadcasting to WebSocket clients.
+    """
 
-    async def connect(self, websocket: WebSocket):
-        """Add a new WebSocket connection"""
-        await websocket.accept()
-        self.connections.append(websocket)
-        print(f"🔌 WebSocket connected. Total: {len(self.connections)}")
+    def __init__(self, event_queue: queue.Queue):
+        self.event_queue = event_queue
+        self.event_counter = 0
+        self.lock = threading.Lock()
 
-    def disconnect(self, websocket: WebSocket):
-        """Remove a WebSocket connection"""
-        self.connections.remove(websocket)
-        print(f"🔌 WebSocket disconnected. Total: {len(self.connections)}")
+    def emit(self, event_type: str, data: Dict[str, Any]):
+        """
+        Emit an event to be broadcast to clients.
 
-    async def emit(self, event: Dict[str, Any]):
-        """Broadcast event to all connected clients"""
-        if not self.connections:
-            return
+        Args:
+            event_type: Type of event
+            data: Event data dictionary
+        """
+        with self.lock:
+            self.event_counter += 1
 
-        message = json.dumps(event)
-        disconnected = []
+            event = {
+                "id": self.event_counter,
+                "type": event_type,
+                "timestamp": self._get_current_timestamp(),
+                "data": data
+            }
 
-        for connection in self.connections:
-            try:
-                await connection.send_text(message)
-            except Exception as e:
-                print(f"🚨 WebSocket error: {e}")
-                disconnected.append(connection)
+            # Put event in queue for WebSocket broadcasting
+            self.event_queue.put(event)
 
-        # Remove disconnected clients
-        for connection in disconnected:
-            self.connections.remove(connection)
-
-    async def broadcast(self, event_type: str, data: Dict[str, Any]):
-        """Convenience method for structured broadcasting"""
-        event = {
-            "type": event_type,
-            "timestamp": self._get_timestamp(),
-            **data
-        }
-        await self.emit(event)
-
-    def _get_timestamp(self) -> str:
-        """Get current timestamp in ISO format"""
+    def _get_current_timestamp(self) -> str:
+        """Get current timestamp in ISO format."""
         from datetime import datetime
         return datetime.now().isoformat()
 
-    async def send_error(self, error_message: str):
-        """Send error message to all clients"""
-        await self.emit({
-            "type": "error",
-            "message": error_message,
-            "timestamp": self._get_timestamp()
+    def broadcast_system_message(self, message: str, level: str = "info"):
+        """
+        Broadcast a system-level message.
+
+        Args:
+            message: Message text
+            level: Message level (info, warning, error)
+        """
+        self.emit("system_message", {
+            "message": message,
+            "level": level
         })
 
-# Global broadcaster instance
-broadcaster = EventBroadcaster()
+    def broadcast_world_event(self, world_id: str, event_type: str, data: Dict[str, Any]):
+        """
+        Broadcast a world-specific event.
+
+        Args:
+            world_id: World identifier
+            event_type: Event type
+            data: Event data
+        """
+        data["world_id"] = world_id
+        self.emit(f"world_{event_type}", data)
+
+    def log_event(self, category: str, message: str, data: Optional[Dict] = None):
+        """
+        Log an event for debugging/development.
+
+        Args:
+            category: Event category
+            message: Event message
+            data: Additional data
+        """
+        self.emit("log_event", {
+            "category": category,
+            "message": message,
+            "data": data or {}
+        })
+
+# Global event broadcaster instance
+global_broadcaster = None
+
+def initialize_broadcaster(event_queue: queue.Queue):
+    """
+    Initialize the global broadcaster instance.
+
+    Args:
+        event_queue: Event queue for cross-thread communication
+    """
+    global global_broadcaster
+    global_broadcaster = EventBroadcaster(event_queue)
+
+def get_broadcaster() -> EventBroadcaster:
+    """
+    Get the global broadcaster instance.
+
+    Returns:
+        EventBroadcaster instance
+    """
+    if global_broadcaster is None:
+        raise RuntimeError("Event broadcaster not initialized")
+    return global_broadcaster

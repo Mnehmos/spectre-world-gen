@@ -19,6 +19,7 @@ from .world_engine import WorldEngine
 from .events import EventBroadcaster
 from .mcp_handler import MCPHandler
 from .database import DatabaseManager
+from .api import add_router
 
 # Global state
 app = FastAPI(title="SPECTRE World Generation Server",
@@ -33,6 +34,9 @@ engine = WorldEngine()
 broadcaster = EventBroadcaster(event_queue)
 database = DatabaseManager("spectre_world.db")
 mcp_handler = MCPHandler(engine, broadcaster, database)
+
+# Add API router
+add_router(app)
 
 # CORS middleware
 app.add_middleware(
